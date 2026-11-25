@@ -1,51 +1,50 @@
+import time                 # provides timing for benchmarks
+from numpy import *        # provides complex math and array functions
+from sklearn import svm	    # provides Support Vector Regression
 import csv
-from pathlib import Path
-
-import numpy as np
-
+import math
+import sys
 
 class DataFromFile:
+    #------------------------------------------------------------------------------
     def getTwoDecPoint(self, x):
-        return float(f"{x:.2f}")
-
+        return float("%.2f"%x)
+    #------------------------------------------------------------------------------
     def placeDataIntoArray(self, fileName):
-        input_file = Path(__file__).resolve().parent / fileName
-        with input_file.open(mode="r", newline="", encoding="utf-8") as csvfile:
-            data = np.asarray(list(csv.reader(csvfile)), dtype=np.float64)
-        if data.size == 0:
-            raise ValueError(f"Data file is empty: {input_file}")
-        return data
+        with open(fileName, mode='r') as csvfile:
+            datareader = csv.reader(csvfile, delimiter=',', quotechar=' ')
+            dataArray = array([row for row in datareader], dtype=float64, order='C')
 
+        if (min(dataArray.shape) == 1): # flatten arrays of one row or column
+            return dataArray.flatten(order='C')
+        else:
+            return dataArray
+    #------------------------------------------------------------------------------
     def getAllOfTheData(self):
-        TrainX = self.placeDataIntoArray("TrainX.csv")
-        TrainY = self.placeDataIntoArray("TrainY.csv").reshape(-1)
-        ValidateX = self.placeDataIntoArray("ValidX.csv")
-        ValidateY = self.placeDataIntoArray("ValidY.csv").reshape(-1)
-        TestX = self.placeDataIntoArray("TestX.csv")
-        TestY = self.placeDataIntoArray("TestY.csv").reshape(-1)
-
-        datasets = (
-            ("training", TrainX, TrainY),
-            ("validation", ValidateX, ValidateY),
-            ("test", TestX, TestY),
-        )
-        for name, features, targets in datasets:
-            if features.ndim != 2 or features.shape[1] != TrainX.shape[1]:
-                raise ValueError(f"{name} features must have {TrainX.shape[1]} columns.")
-            if features.shape[0] != targets.shape[0]:
-                raise ValueError(f"{name} feature and target row counts do not match.")
-
+        TrainX = self.placeDataIntoArray('Train-Data.csv')
+        TrainY = self.placeDataIntoArray('Train-pIC50.csv')
+        ValidateX = self.placeDataIntoArray('Validation-Data.csv')
+        ValidateY = self.placeDataIntoArray('Validation-pIC50.csv')
+        TestX = self.placeDataIntoArray('Test-Data.csv')
+        TestY = self.placeDataIntoArray('Test-pIC50.csv')
         return TrainX, TrainY, ValidateX, ValidateY, TestX, TestY
-
+    #------------------------------------------------------------------------------
     def rescaleTheData(self, TrainX, ValidateX, TestX):
-        if TrainX.shape[0] < 2:
-            raise ValueError("At least two training rows are required for rescaling.")
+        # 1 degree of freedom means (ddof) N-1 unbiased estimation
+        TrainXVar = TrainX.var(axis=0, ddof=1)
+        TrainXMean = TrainX.mean(axis=0)
 
-        train_mean = TrainX.mean(axis=0)
-        train_std = TrainX.std(axis=0, ddof=1)
-        train_std[train_std == 0] = 1.0
+        # Constant (or nearly constant) features have std ~ 0, which would give 0/0 = NaN
+        # or huge values. Use 1 for those so they become all zeros instead.
+        TrainXStd = sqrt(TrainXVar)
+        TrainXStd[TrainXStd < 1e-8] = 1
 
-        TrainX = (TrainX - train_mean) / train_std
-        ValidateX = (ValidateX - train_mean) / train_std
-        TestX = (TestX - train_mean) / train_std
+        for i in range(0, TrainX.shape[0]):
+            TrainX[i, :] = (TrainX[i, :] - TrainXMean) / TrainXStd
+        for i in range(0, ValidateX.shape[0]):
+            ValidateX[i, :] = (ValidateX[i, :] - TrainXMean) / TrainXStd
+        for i in range(0, TestX.shape[0]):
+            TestX[i, :] = (TestX[i, :] - TrainXMean) / TrainXStd
+
         return TrainX, ValidateX, TestX
+    #------------------------------------------------------------------------------
