@@ -1,9 +1,10 @@
 #### Imported Libraries ####
-import numpy as np  							    ##from project file
-import pandas as pd								    ##from project file
-from sklearn.impute import SimpleImputer 		    ##from project file
+import numpy as np                                  ##from project file
+import pandas as pd                                 ##from project file
+from sklearn.impute import SimpleImputer            ##from project file
 from sklearn.preprocessing import StandardScaler    ##from project file
 
+import sys
 import csv
 from itertools import zip_longest
 from math import isfinite
@@ -38,7 +39,7 @@ class myMatrix:
 
         def EditPart2(self, original_rows):
 
-                header = original_rows[0]										## Used to keep Header Row
+                header = original_rows[0]                                       ## Used to keep Header Row
                 data = pd.DataFrame(original_rows[1:], columns=header)
                 name_column = next(
                     (column for column in data.columns if str(column).strip().upper() == "NAME"),
@@ -48,12 +49,12 @@ class myMatrix:
                 numeric_columns = [
                     column for column in data.columns if column != name_column
                 ]
-                data[numeric_columns] = data[numeric_columns].apply(	## Code from Lab Doc
-                    pd.to_numeric,												##
-                    errors="coerce",											##
-                )																##
-                print("\nNumber of NaN values in each column:")					##
-                print(data.isna().sum())										##
+                data[numeric_columns] = data[numeric_columns].apply(    ## Code from Lab Doc
+                    pd.to_numeric,                                              ##
+                    errors="coerce",                                            ##
+                )                                                               ##
+                print("\nNumber of NaN values in each column:")                 ##
+                print(data.isna().sum())                                        ##
 
                 def clean_value(value):
                     try:
@@ -76,9 +77,9 @@ class myMatrix:
                 def is_valid(values):
                     try:
                         value = float(values[0])
-                        valid = isfinite(value) and value != 0.0											## Check target value and reject zeros and junk
+                        valid = isfinite(value) and value != 0.0                                            ## Check target value and reject zeros and junk
                     except (IndexError, ValueError):
-                        valid = False																		## flag if data is empty or non numeric
+                        valid = False                                                                       ## flag if data is empty or non numeric
 
                     return valid
 
@@ -525,15 +526,18 @@ def SaveSplitFiles(final_matrix):
         index for index in range(1, len(header)) if index != name_index
     ]
 
+    # Split names match the files MainMLR.py reads:
+    # Train-Data.csv, Train-pIC50.csv, Validation-Data.csv, Validation-pIC50.csv,
+    # Test-Data.csv, Test-pIC50.csv
     splits = {
         "Train": ([], []),
-        "Valid": ([], []),
+        "Validation": ([], []),
         "Test": ([], []),
     }
 
     # IC50 in nM is inversely related to pIC50, so descending IC50 sorts ascending pIC50.
     sorted_rows = sorted(final_matrix[1:], key=lambda row: float(row[0]), reverse=True)
-    split_by_position = ("Train", "Train", "Valid", "Test")
+    split_by_position = ("Train", "Train", "Validation", "Test")
     for row_index, row in enumerate(sorted_rows):
         split_name = split_by_position[row_index % len(split_by_position)]
         x_rows, y_rows = splits[split_name]
@@ -541,18 +545,19 @@ def SaveSplitFiles(final_matrix):
         y_rows.append((row[0],))
 
     for split_name, (x_rows, y_rows) in splits.items():
-        for suffix, rows in (("X", x_rows), ("Y", y_rows)):
-            output_file = Path(__file__).with_name(f"{split_name}{suffix}.csv")
+        for suffix, rows in (("Data", x_rows), ("pIC50", y_rows)):
+            output_file = Path(__file__).with_name(f"{split_name}-{suffix}.csv")
             with output_file.open("w", newline="", encoding="utf-8") as csv_file:
                 csv.writer(csv_file).writerows(rows)
             print(f"CSV file saved to: {output_file.name}")
 
 
+
 ### Save CSV Files ###
 def SaveMatrices(file_name):
-    matrix = myMatrix()                                             	## Create the Matrix class
-    Part2 = myMatrix.EditPart2(matrix, matrix.GetMatrix(file_name))		## Call Part2 to remove non numerics from data
-    Part3 = myMatrix.EditPart3(matrix, Part2)							## Call Part3 to remove rows where Y (IC50) is NaN
+    matrix = myMatrix()                                                 ## Create the Matrix class
+    Part2 = myMatrix.EditPart2(matrix, matrix.GetMatrix(file_name))     ## Call Part2 to remove non numerics from data
+    Part3 = myMatrix.EditPart3(matrix, Part2)                           ## Call Part3 to remove rows where Y (IC50) is NaN
     Part4 = myMatrix.EditPart4(matrix, Part3)
     Part5 = myMatrix.EditPart5(matrix, Part4)
     Part6 = myMatrix.EditPart6(matrix, Part5)
@@ -582,4 +587,4 @@ def SaveMatrices(file_name):
 
 
 if __name__ == "__main__":
-    SaveMatrices("Data.xlsx")										## called function
+    SaveMatrices("Data.xlsx")                                       ## called function
