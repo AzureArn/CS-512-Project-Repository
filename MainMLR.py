@@ -1,175 +1,217 @@
-import time  # provides timing for benchmarks
-from numpy import *  # provides complex math and array functions
-from sklearn import svm  # provides Support Vector Regression
-from sklearn import linear_model
-from sklearn import neural_network
-from sklearn import cross_decomposition  #provides Partial Least Square Regression
 import csv
-import math
-import sys
+import time
+from pathlib import Path
 
-# Local files created by me
-import mlr
+import numpy as np
+
 import FromDataFileMLR
 import FromFinessFileMLR
+import mlr
+
+
+class R2SortedCSVWriter:
+    def __init__(self, file_name):
+        self.file_out = open(file_name, "w", newline="", encoding="utf-8")
+        self.writer = csv.writer(self.file_out)
+        self.header = None
+        self.rows = []
+
+    def writerow(self, row):
+        if self.header is None:
+            self.header = row
+        else:
+            self.rows.append(row)
+
+    def close(self):
+        try:
+            if self.header is not None:
+                self.writer.writerow(self.header)
+            self.rows.sort(key=lambda row: float(row[3]), reverse=True)
+            self.writer.writerows(self.rows)
+        finally:
+            self.file_out.close()
+
 
 class FitnessAnalyzer:
-    def __init__(self):
-        self.fitnessdata = FromFinessFileMLR.FitnessResults()
-    # ------------------------------------------------------------------------------
-    def getAValidrow(self, numOfFea, eps=None):
-        # In the parameters, numOfFea refers to the number of columns in the data. 
-        # This number is total number of your columns. In this routune, you need to
-        # select a random number between 0 and 1: {r = random.uniform(0, 1)}.
-        # If the value is less that or equal 0.015 (1.5% of the features) you can
-        # set that index to 1; otherwise, the index is set to zero.
-        # After going through the entire features (bits), you can add all the numbers
-        # together to see if at least 5 features and at most 15 features are set to 1.
-        # If that is the case you can return the vector; otherwise, you need to do it again.
-        
-        # Build complete feature vectors and keep only those containing 5 to 15 features.
-        # By default, aim for 10 selected features across numOfFea columns.
-        if eps is None:
-            eps = 10.0 / numOfFea
+    def __init__(self, fitnessdata=None, random_state=None):
+        self.fitnessdata = fitnessdata or FromFinessFileMLR.FitnessResults()
+        self.rng = np.random.default_rng(random_state)
 
-        while True:
-            V = [1 if random.uniform(0, 1) < eps else 0 for i in range(numOfFea)]
-            selected = sum(V)
-            if 5 <= selected <= 15:
-                return V
-    # ------------------------------------------------------------------------------
+    def getAValidrow(self, numOfFea, eps=0.015):
+        if numOfFea <= 0:
+            raise ValueError("numOfFea must be greater than zero.")
+        if not 0 < eps <= 1:
+            raise ValueError("eps must be greater than zero and at most one.")
+
+        return (self.rng.random(numOfFea) < eps).astype(int)
+
     def Create_A_Population(self, numOfPop, numOfFea):
-        # this routine creates the first poprlation. We want to have 50 rows
-        # (50 population) and number of features is the number of your columns.
-        # Since this the first population, all 50 rows should be randomly selected. 
-        # Therefore, for each row, you need to call the getAValidrow function 
-        # and move the vector into the row. Once the first population is created
-        # you can return it to Callee
-        population = []
-        for i in range(numOfPop): #how he said to write it on the board in class
-            v = self.getAValidrow(numOfFea)
-            population.append(v)
+        if numOfPop <= 0:
+            raise ValueError("numOfPop must be greater than zero.")
+        population = np.array(
+            [self.getAValidrow(numOfFea) for _ in range(numOfPop)],
+            dtype=int,
+        )
+        return population.reshape(numOfPop, numOfFea)
 
-        return array(population, dtype=int)
-    # ------------------------------------------------------------------------------
-    # The following creates an output file. Every time a model is created the
-    # descriptors of the model, the name of the model (ex: "MLR" for multiple
-    # linear regression of "SVM" support vector machine), the R^2 of training, Q^2
-    # of training,R^2 of validation, and R^2 of test is placed in the output file
-
-    def createAnOutputFile(self):
-        file_name = None
-        algorithm = None
-
+    def createAnOutputFile(self, algorithm=None):
         timestamp = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
-        if ((file_name == None) and (algorithm != None)):
-            file_name = "{}_{}_gen{}_{}.csv".format(algorithm.__class__.__name__,
-                                                    algorithm.model.__class__.__name__, algorithm.gen_max, timestamp)
-        elif file_name == None:
-            file_name = "{}.csv".format(timestamp)
-        fileOut = open(file_name, 'w')
-        fileW = csv.writer(fileOut)
+        algorithm_name = algorithm.__class__.__name__ if algorithm is not None else "MLR"
+        file_name = Path(__file__).resolve().parent / f"{algorithm_name}_{timestamp}.csv"
+        file_writer = R2SortedCSVWriter(file_name)
+        file_writer.writerow(
+            [
+                "Descriptor ID",
+                "Fitness",
+                "Model",
+                "R2",
+                "Q2",
+                "R2Pred_Validation",
+                "R2Pred_Test",
+            ]
+        )
+        return file_writer
 
-        fileW.writerow(['Descriptor ID', 'Fitness', 'Model', 'R2', 'Q2', 'R2Pred_Validation', 'R2Pred_Test'])
-
-        return fileW
-    # -------------------------------------------------------------------------------------------
     def createANewPopulation(self, numOfPop, numOfFea, OldPopulation, fitness):
-        # Convert fitness values to a Python list and find the two best rows.
-        fitness = list(fitness)
+        OldPopulation = np.asarray(OldPopulation, dtype=int)
+        fitness = np.asarray(fitness, dtype=float)
+        if OldPopulation.shape != (numOfPop, numOfFea):
+            raise ValueError("OldPopulation shape does not match the requested size.")
+        if fitness.shape != (numOfPop,) or not np.all(np.isfinite(fitness)):
+            raise ValueError("Fitness must contain one finite value per population row.")
+        if numOfPop < 2:
+            raise ValueError("At least two population members are needed for selection.")
 
-        mom_index = fitness.index(max(fitness))
-        fitness_without_mom = fitness.copy()
-        fitness_without_mom[mom_index] = -math.inf
-        dad_index = fitness_without_mom.index(max(fitness_without_mom))
+        parent_indices = np.argsort(fitness)[:2]
+        mom = OldPopulation[parent_indices[0]].tolist()
+        dad = OldPopulation[parent_indices[1]].tolist()
 
-        MOM = list(OldPopulation[mom_index])
-        DAD = list(OldPopulation[dad_index])
+        crossover_point = int(self.rng.integers(1, numOfFea))
+        child1 = mom[:crossover_point] + dad[crossover_point:]
+        child2 = dad[:crossover_point] + mom[crossover_point:]
+        new_population = [mom, dad, child1, child2][:numOfPop]
+        while len(new_population) < numOfPop:
+            new_population.append(self.getAValidrow(numOfFea).tolist())
+        return np.asarray(new_population, dtype=int)
 
-        # Create two children using a randomly selected crossover point.
-        crossover_point = random.randint(1, numOfFea - 1)
-        child1 = MOM[:crossover_point] + DAD[crossover_point:]
-        child2 = DAD[:crossover_point] + MOM[crossover_point:]
+    def PerformOneThousandIteration(
+        self,
+        numOdPop,
+        numOfFea,
+        population,
+        fitness,
+        model,
+        fileW,
+        TrainX,
+        TrainY,
+        ValidateX,
+        ValidateY,
+        TestX,
+        TestY,
+        fittingStatus=False,
+        R2req_train=0.6,
+        Q2req_train=0.5,
+        R2req_validate=0.5,
+        R2req_test=0.5,
+        R2max=1.0,
+    ):
+        for generation in range(1, 1001):
+            if fittingStatus:
+                break
 
-        if not 5 <= sum(child1) <= 15:
-            child1 = self.getAValidrow(numOfFea)
-        if not 5 <= sum(child2) <= 15:
-            child2 = self.getAValidrow(numOfFea)
+            population = self.createANewPopulation(
+                numOdPop, numOfFea, population, fitness
+            )
+            fittingStatus, fitness = self.fitnessdata.validate_model(
+                model,
+                fileW,
+                population,
+                TrainX,
+                TrainY,
+                ValidateX,
+                ValidateY,
+                TestX,
+                TestY,
+                R2req_train,
+                Q2req_train,
+                R2req_validate,
+                R2req_test,
+                R2max,
+            )
+            print(f"Generation {generation}")
+            if fittingStatus:
+                print("Model requirements met; stopping.")
 
-        NewPopulation = [MOM, DAD, child1, child2]
-
-        # Fill the remaining rows with random valid feature vectors.
-        while len(NewPopulation) < numOfPop:
-            NewPopulation.append(self.getAValidrow(numOfFea))
-
-        return array(NewPopulation, dtype=int)
-        
-    # -------------------------------------------------------------------------------------------
-    def PerformOneThousandIteration(self, numOdPop, numOfFea, population, fitness, model, fileW,
-                                   TrainX, TrainY, ValidateX, ValidateY, TestX, TestY):
-        NumOfGenerations = 0
-        OldPopulation = population
-
-        while NumOfGenerations < 1000:
-            population = self.createANewPopulation(numOdPop, numOfFea, OldPopulation, fitness)
-            fittingStatus, fitness = self.fitnessdata.validate_model(model, fileW, population,
-                                            TrainX, TrainY, ValidateX, ValidateY, TestX, TestY)
-            OldPopulation = population
-            NumOfGenerations += 1
-            print(NumOfGenerations)
-        return
-    # --------------------------------------------------------------------------------------------
 
 def main():
-    # create an object of Multiple Linear Regression model.
-    # The class is located in mlr file
     model = mlr.MLR()
-    #model = svm.LinearSVR()
-    #model = cross_decomposition.PLSRegression()
+    filedata = FromDataFileMLR.DataFromFile()
+    analyzer = FitnessAnalyzer()
+    file_writer = analyzer.createAnOutputFile(model)
 
-    filedata = FromDataFileMLR.DataFromFile()           # constructor for FromDataFileMLR class
-    fitnessdata = FromFinessFileMLR.FitnessResults()    # constructor for FromFitnessFileMLR object
-    analyzer = FitnessAnalyzer()                        # constructor for MainMLR class
+    num_of_population = 50
+    r2req_train = 0.5
+    q2req_train = 0.5
+    r2req_validate = 0.5
+    r2req_test = 0.5
+    r2max = 1.0
 
-    # create an output file. Name the object to be FileW
-    fileW = analyzer.createAnOutputFile()
+    try:
+        TrainX, TrainY, ValidateX, ValidateY, TestX, TestY = (
+            filedata.getAllOfTheData()
+        )
+        TrainX, ValidateX, TestX = filedata.rescaleTheData(
+            TrainX, ValidateX, TestX
+        )
+        num_of_features = TrainX.shape[1]
+        print("Population size:", num_of_population)
+        print("Feature count:", num_of_features)
 
-    # Number of population rows; the feature count comes from the loaded training data.
-    numOfPop = 50
+        population = analyzer.Create_A_Population(
+            num_of_population, num_of_features
+        )
+        fitting_status, fitness = analyzer.fitnessdata.validate_model(
+            model,
+            file_writer,
+            population,
+            TrainX,
+            TrainY,
+            ValidateX,
+            ValidateY,
+            TestX,
+            TestY,
+            r2req_train,
+            q2req_train,
+            r2req_validate,
+            r2req_test,
+            r2max,
+        )
+        if fitting_status:
+            print("Model requirements met; stopping.")
 
-    # we continue exhancing the model; however if after 1000 iteration no
-    # enhancement is done, we can quit
-    unfit = 1000
-
-    # Final model requirements: The following is used to evaluate each model. The minimum
-    # values for R^2 of training should be 0.6, R^2 of Validation should be 0.5 and R^2 of
-    # test should be 0.5
-    R2req_train = .6
-    R2req_validate = .5
-    R2req_test = .5
-
-    # getAllOfTheData is in FromDataFileMLR file. The following places the data
-    # (training data, validation data, and test data) into associated matrices
-    TrainX, TrainY, ValidateX, ValidateY, TestX, TestY = filedata.getAllOfTheData() # gets descriptor values and target values
-    # Note that rescalling is already done in your cleaning section and you do not need to do it again
-    TrainX, ValidateX, TestX = filedata.rescaleTheData(TrainX, ValidateX, TestX)
-
-    numOfFea = TrainX.shape[1]
-    print("Population size:", numOfPop)
-    print("Feature count:", numOfFea)
-
-    fittingStatus = unfit
-    population = analyzer.Create_A_Population(numOfPop, numOfFea)
-    fittingStatus, fitness = fitnessdata.validate_model(model, fileW, population,
-                                            TrainX, TrainY, ValidateX, ValidateY, TestX, TestY)
-
-    analyzer.PerformOneThousandIteration(numOfPop, numOfFea, population, fitness, model, fileW,
-                               TrainX, TrainY, ValidateX, ValidateY, TestX, TestY)
+        analyzer.PerformOneThousandIteration(
+            num_of_population,
+            num_of_features,
+            population,
+            fitness,
+            model,
+            file_writer,
+            TrainX,
+            TrainY,
+            ValidateX,
+            ValidateY,
+            TestX,
+            TestY,
+            fitting_status,
+            r2req_train,
+            q2req_train,
+            r2req_validate,
+            r2req_test,
+            r2max,
+        )
+    finally:
+        file_writer.close()
 
 
-# main routine ends in here
-# ------------------------------------------------------------------------------
-main()
-# ------------------------------------------------------------------------------
-
-
+if __name__ == "__main__":
+    main()

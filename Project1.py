@@ -546,15 +546,17 @@ def SaveMatrices(file_name):
         print(f"CSV file saved to: {output_file.name}")
         return output_file
 
-    part_files = tuple(
-        save_csv(rows, f"Part{part_number}.csv")
-        for part_number, rows in enumerate(
-            (Part2, Part3, Part4, Part5, Part6, Part7, Part8, Part9, Part10),
-            start=2,
-        )
-    )
+    
+   #     part_files = tuple(
+   #     save_csv(rows, f"Part{part_number}.csv")
+   #     for part_number, rows in enumerate(
+   #         (Part2, Part3, Part4, Part5, Part6, Part7, Part8, Part9, Part10),
+   #         start=2,
+   #         )    
+   #     )
+    
     final_file = save_csv(final, "FinalCleanedData.csv")
-    return part_files, final_file
+    return final_file
 
 
 if __name__ == "__main__":
