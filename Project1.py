@@ -97,10 +97,14 @@ class myMatrix:
 
             header = part2[0]
             data = pd.DataFrame(part2[1:], columns=header)
-            valid_target = pd.to_numeric(data.iloc[:, 0], errors="coerce").notna()
-            valid_rows = tuple(
-                data.loc[valid_target].itertuples(index=False, name=None)
-            )
+            target = pd.to_numeric(data.iloc[:, 0], errors="coerce")
+            valid_target = target.notna() & (target > 0)  # log needs positive values
+            data = data.loc[valid_target].copy()
+
+            # IC50 (nM) -> pIC50
+            data.iloc[:, 0] = (9 - np.log10(target[valid_target])).values
+
+            valid_rows = tuple(data.itertuples(index=False, name=None))
             return (header,) + valid_rows
 
 
@@ -546,17 +550,15 @@ def SaveMatrices(file_name):
         print(f"CSV file saved to: {output_file.name}")
         return output_file
 
-    
-   #     part_files = tuple(
-   #     save_csv(rows, f"Part{part_number}.csv")
-   #     for part_number, rows in enumerate(
-   #         (Part2, Part3, Part4, Part5, Part6, Part7, Part8, Part9, Part10),
-   #         start=2,
-   #         )    
-   #     )
-    
+    part_files = tuple(
+        save_csv(rows, f"Part{part_number}.csv")
+        for part_number, rows in enumerate(
+            (Part2, Part3, Part4, Part5, Part6, Part7, Part8, Part9, Part10),
+            start=2,
+        )
+    )
     final_file = save_csv(final, "FinalCleanedData.csv")
-    return final_file
+    return part_files, final_file
 
 
 if __name__ == "__main__":
