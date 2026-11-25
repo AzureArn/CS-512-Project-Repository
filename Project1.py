@@ -104,6 +104,12 @@ class myMatrix:
             # IC50 (nM) -> pIC50
             data.iloc[:, 0] = (9 - np.log10(target[valid_target])).values
 
+            # Remove compounds that have no descriptors at all (every X is "na")
+            x_numeric = data.iloc[:, 3:].apply(pd.to_numeric, errors="coerce")  # columns: IC50, No., NAME, then X
+            empty_rows = x_numeric.isna().mean(axis=1) > 0.9
+            print("Rows with no descriptors removed:", empty_rows.sum())
+            data = data.loc[~empty_rows]
+
             valid_rows = tuple(data.itertuples(index=False, name=None))
             return (header,) + valid_rows
 
@@ -288,6 +294,9 @@ class myMatrix:
             header = part6[0]
             data = pd.DataFrame(part6[1:], columns=header)
 
+            zero_iqr_columns = 0
+            wiped_nonzero = 0
+
             Y = data.iloc[:, 0].copy()
             name_column = next(
                 (column for column in data.columns if str(column).strip().upper() == "NAME"),
@@ -319,6 +328,10 @@ class myMatrix:
                 # Identify outliers.
                 outliers = ((X[column] < lower_limit) | (X[column] > upper_limit))
 
+                if IQR == 0:
+                    zero_iqr_columns += 1
+                    wiped_nonzero += outliers.sum()
+
                 total_outliers += outliers.sum()
 
                 # Replace outliers with NaN.
@@ -332,6 +345,10 @@ class myMatrix:
                 parts.append(name)
             parts.append(X)
             data = pd.concat(parts, axis=1)
+
+            print("Columns with IQR == 0:", zero_iqr_columns, "of", X.shape[1])
+            print("Values wiped in those columns:", wiped_nonzero, "of", total_outliers, "total outliers")
+
             return (tuple(data.columns),) + tuple(data.itertuples(index=False, name=None))
 
 
@@ -366,6 +383,9 @@ class myMatrix:
                 column for column in data.columns[1:] if column != name_column
             ]
             X = data[x_columns].copy()
+
+            print("Fraction of X cells that are NaN before imputation:", X.isna().mean().mean())
+            print("Columns with more than 30% NaN:", (X.isna().mean() > 0.3).sum(), "of", X.shape[1])
 
             imputer = SimpleImputer(strategy="median")
 
